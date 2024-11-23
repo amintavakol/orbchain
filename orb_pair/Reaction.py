@@ -4,22 +4,21 @@ Module for tools and methods for a BaseReaction
 import logging as log
 log.basicConfig(level=log.DEBUG)
 
-from rpCHEM.Common.MolExt import getAtmMappedSmilesFromCompositeSmiles, clearAtomMaps
-from rpCHEM.Common.MolExt import clearMolStereo
-from rpCHEM.Common.Util import molBySmiles, splitCompositeSmilesToList
-from rpCHEM.Common.Util import createAtomMapSmiString, clearAtomMapsSmiStr
-from rpCHEM.Common.Util import standardizeSmiles, createStdAtomMapSmiString, smi_to_unique_smi_fast 
-from rpCHEM.Common.CanonicalAtomMapSmiles import canonicalizeAtomMapSmiString
-from rpCHEM.CombiCDB.OrbitalInteraction import moveOrbitalElectrons, undoMoveOrbitalElectrons
-from rpCHEM.CombiCDB.OrbitalInteraction import perceiveInvertedOrbitals
-from rpCHEM.CombiCDB.OrbitalInteraction import ElementaryStepData, reactionSmilesFromOrbitalPair
-from rpCHEM.CombiCDB.OrbitalInteraction import isBondDissociation
-from rpCHEM.CombiCDB.MechanismModel import ElectronArrow
-from rpCHEM.Common.OrbitalModel import Orbital as rpCHEMOrbital, clearNonInvolvedAtomMaps
-from rpCHEM.CombiCDB.Const import REACTION_DELIM
+from chemutils.Common.MolExt import getAtmMappedSmilesFromCompositeSmiles, clearAtomMaps
+from chemutils.Common.MolExt import clearMolStereo
+from chemutils.Common.Util import molBySmiles, splitCompositeSmilesToList
+from chemutils.Common.Util import createAtomMapSmiString, clearAtomMapsSmiStr
+from chemutils.Common.Util import standardizeSmiles, createStdAtomMapSmiString, smi_to_unique_smi_fast 
+from chemutils.Common.CanonicalAtomMapSmiles import canonicalizeAtomMapSmiString
+from chemutils.CombiCDB.OrbitalInteraction import moveOrbitalElectrons, undoMoveOrbitalElectrons
+from chemutils.CombiCDB.OrbitalInteraction import perceiveInvertedOrbitals
+from chemutils.CombiCDB.OrbitalInteraction import ElementaryStepData, reactionSmilesFromOrbitalPair
+from chemutils.CombiCDB.OrbitalInteraction import isBondDissociation
+from chemutils.CombiCDB.MechanismModel import ElectronArrow
+from chemutils.Common.OrbitalModel import Orbital as chemutilsOrbital, clearNonInvolvedAtomMaps
+from chemutils.CombiCDB.Const import REACTION_DELIM
+from chemutils.CombiCDB.MarvinArrowLookup import arrowToOrbital, ArrowConversionError
 
-from rmechdb.modules.MarvinArrowLookup import arrowToOrbital, ArrowConversionError
-from rmechdb.tools.utils import *
 from openeye.oechem import *
 from random import shuffle
 
@@ -126,14 +125,7 @@ class Reaction():
 
         return smirks
     
-    def compute_prod_mass(self):
-        prods = self.products_smiles + '.' + self.spectators
-        prods = prods.split(".")
-        mass = 0.0
-        for smi in prods:
-            mass += calculate_molecular_weight(smi)
-        return mass
-
+    
     @staticmethod
     def find_spectators(reactants, products):
         canon_reactants = [smi_to_unique_smi_fast(i) for i in reactants.split(".")]
@@ -151,7 +143,7 @@ class Reaction():
         return smi_to_unique_smi_fast(specs_smiles), smi_to_unique_smi_fast(reactant_smiles), smi_to_unique_smi_fast(product_smiles)
 
     def _toElementaryStepData(self):
-        """Function to convert to rpCHEMOrbital format
+        """Function to convert to chemutilsOrbital format
         """
         oemol = molBySmiles(str(self.atm_map_reactant_smiles))
 
@@ -297,9 +289,9 @@ class Reaction():
         # Make a new copy of the orbs to ensure only working with atm
         # mapped components
         newOEMol = molBySmiles(atm_map_reactant_smiles)
-        nSrc = rpCHEMOrbital.fromLabeledMolAndInfoStr(newOEMol,
+        nSrc = chemutilsOrbital.fromLabeledMolAndInfoStr(newOEMol,
                                                       srcOrb.formatInfoStr())
-        nSink = rpCHEMOrbital.fromLabeledMolAndInfoStr(newOEMol,
+        nSink = chemutilsOrbital.fromLabeledMolAndInfoStr(newOEMol,
                                                      sinkOrb.formatInfoStr())
         
         ## Then make sure we have a canonincal version of the atom mapped smiles
@@ -315,7 +307,7 @@ class Reaction():
         srcAtmSmi = getAtmMappedSmilesFromCompositeSmiles(srcAtmSmi, clearMaps=False)  # here is where the non-connected components are dropped. part w map is saved
         
         srcOEMol = molBySmiles(srcAtmSmi)
-        singleMolSrcOrb = rpCHEMOrbital.fromLabeledMolAndInfoStr(srcOEMol, srcInfoStr)
+        singleMolSrcOrb = chemutilsOrbital.fromLabeledMolAndInfoStr(srcOEMol, srcInfoStr)
         if singleMolSrcOrb.isPerceivedFreeRadical():
             num_elec_src = 1
         else:
@@ -330,7 +322,7 @@ class Reaction():
         sinkAtmSmi = getAtmMappedSmilesFromCompositeSmiles(sinkAtmSmi, clearMaps=False)
        
         sinkOEMol = molBySmiles(sinkAtmSmi)
-        singleMolSinkOrb = rpCHEMOrbital.fromLabeledMolAndInfoStr(sinkOEMol, sinkInfoStr)
+        singleMolSinkOrb = chemutilsOrbital.fromLabeledMolAndInfoStr(sinkOEMol, sinkInfoStr)
         if singleMolSinkOrb.isPerceivedFreeRadical():
             num_elec_sink = 1
         else:
