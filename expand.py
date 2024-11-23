@@ -1,8 +1,8 @@
 import argparse
 
-from ranker.utils import *
+from orb_pair.utils import *
 from atom.utils import *
-from ranker.modules.simple_orbpair_object import SimpleOrbPairObject as SOO
+from orb_pair.modules.simple_orbpair_object import SimpleOrbPairObject as SOO
 from atom.modules.simple_atom_object import SimpleAtomObject as SAO
 from chemutils.Common.Util import smi_to_unique_smi_fast, smi_to_unique_smi_map
 

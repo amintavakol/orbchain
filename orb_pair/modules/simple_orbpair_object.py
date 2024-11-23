@@ -10,7 +10,7 @@ from chemutils.CombiCDB.proposers.RadicalProposer import RadicalProposer
 from chemutils.CombiCDB.proposers.PericyclicProposer import PericyclicProposer
 
 from openeye.oechem import *  # for mass calculation added 02.16.16
-from ranker.modules.Filters import Filters
+from orb_pair.modules.Filters import Filters
 import random
 
 
