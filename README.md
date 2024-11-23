@@ -1,6 +1,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)  
-The code for [AI for Interpretable Chemistry: Predicting Radical
+The code for the OrbChain model used in [AI for Interpretable Chemistry: Predicting Radical
 Mechanistic Pathways via Contrastive Learning](https://proceedings.neurips.cc/paper_files/paper/2023/file/0ca70969597da7166128f7755c64ffd5-Paper-Conference.pdf) paper from NeurIPS 2023.
+
 
 ## Overview  
 **OrbChain** is a python library to model mechanistic chemial reactions.
@@ -20,43 +21,33 @@ Follow these steps to set up the project:
    git clone https://github.com/amintavakol/orbchain.git
    cd repository
    pip install -r requirements.txt
+   ```
 
-NOTE: this implementation is based on (OEChem Toolkit)[https://docs.eyesopen.com/toolkits/python/oechemtk/index.html]. Make sure to obtain the license of it.
+_Note: this implementation is based on [OEChem Toolkit](https://docs.eyesopen.com/toolkits/python/oechemtk/index.html). Make sure to obtain the license of it._
 ---
 
 ## Example Usage
 
-OrbChain(1)
-    ```python 
-    python find_reactive_pair.py <input reaction>
+OrbChain(1):
+    `python find_reactive_pair.py <input_reaction>`
 
-OrbChain(2)
-    ```python
-    python expand.py <input reactants>
 
----
+OrbChain(2):
+    `python expand.py <input_reactants> <reaction_type>`
 
-## Contribution
-We welcome contributions!
-
-To contribute:
-
-- Fork this repository.
-- Create a feature branch.
-- Submit a pull request with a detailed explanation of your changes.
+The `<reaction_type>` is either polar or radical.
 
 
 ---
 ## Citation
 
 If you use this repository or find it helpful, please consider citing our work:
-    ```
-    @article{tavakoli2024ai,
-        title={AI for interpretable chemistry: predicting radical mechanistic pathways via contrastive learning},
-        author={Tavakoli, Mohammadamin and Baldi, Pierre and Carlton, Ann Marie and Chiu, Yin Ting and Shmakov, Alexander and Van Vranken, David},
-        journal={Advances in Neural Information Processing Systems},
-        volume={36},
-        year={2024}
-}
-
-
+```bibtext
+@article{tavakoli2024ai,
+    title={AI for interpretable chemistry: predicting radical mechanistic pathways via contrastive learning},
+    author={Tavakoli, Mohammadamin and Baldi, Pierre and Carlton, Ann Marie and Chiu, Yin Ting and Shmakov, Alexander and Van Vranken, David},
+    journal={Advances in Neural Information Processing Systems},
+    volume={36},
+    year={2024}
+    }
+```
