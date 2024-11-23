@@ -2,6 +2,7 @@
 The code for the OrbChain model used in [AI for Interpretable Chemistry: Predicting Radical
 Mechanistic Pathways via Contrastive Learning](https://proceedings.neurips.cc/paper_files/paper/2023/file/0ca70969597da7166128f7755c64ffd5-Paper-Conference.pdf) paper from NeurIPS 2023.
 
+_Note: this implementation is based on [OEChem Toolkit](https://docs.eyesopen.com/toolkits/python/oechemtk/index.html). Make sure to obtain the license before using it._
 
 ## Overview  
 **OrbChain** is a python library to model mechanistic chemial reactions.
@@ -23,7 +24,6 @@ Follow these steps to set up the project:
    pip install -r requirements.txt
    ```
 
-_Note: this implementation is based on [OEChem Toolkit](https://docs.eyesopen.com/toolkits/python/oechemtk/index.html). Make sure to obtain the license of it._
 ---
 
 ## Example Usage
