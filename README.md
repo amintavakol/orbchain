@@ -16,21 +16,23 @@ It was introduce in [This paper](https://proceedings.neurips.cc/paper_files/pape
 ## Installation  
 Follow these steps to set up the project:  
 
-1. Clone this repository:  
    ```bash
    git clone https://github.com/amintavakol/orbchain.git
    cd repository
    pip install -r requirements.txt
 
+NOTE: this implementation is based on (OEChem Toolkit)[https://docs.eyesopen.com/toolkits/python/oechemtk/index.html]. Make sure to obtain the license of it.
 ---
 
 ## Example Usage
 
 OrbChain(1)
-    ```python find_reactive_pair.py <input reaction>
+    ```python 
+    python find_reactive_pair.py <input reaction>
 
 OrbChain(2)
-    ```python expand.py <input reactants>
+    ```python
+    python expand.py <input reactants>
 
 ---
 
@@ -39,16 +41,17 @@ We welcome contributions!
 
 To contribute:
 
-Fork this repository.
-Create a feature branch.
-Submit a pull request with a detailed explanation of your changes.
+- Fork this repository.
+- Create a feature branch.
+- Submit a pull request with a detailed explanation of your changes.
 
 
 ---
 ## Citation
 
 If you use this repository or find it helpful, please consider citing our work:
-    ```@article{tavakoli2024ai,
+    ```
+    @article{tavakoli2024ai,
         title={AI for interpretable chemistry: predicting radical mechanistic pathways via contrastive learning},
         author={Tavakoli, Mohammadamin and Baldi, Pierre and Carlton, Ann Marie and Chiu, Yin Ting and Shmakov, Alexander and Van Vranken, David},
         journal={Advances in Neural Information Processing Systems},
