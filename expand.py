@@ -1,3 +1,4 @@
+import sys
 import argparse
 
 from orb_pair.utils import *
@@ -11,26 +12,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input_reactants", type=str, help="the reactants for which you want to generate all the "
                                                           "products.")
-    parser.add_argument('--rand_one', action='store_true', default=False, help="")
-    # parser.add_argument("reaction_type", help="either polar or radical")
+    parser.add_argument("reaction_type", help="polar or radical")
 
     args = parser.parse_args()
     if args.input_reactants:
         reactants = args.input_reactants
     else:
-        reactants = "[NH2:1]CCCC(NC)=O.C[CH+:2]C1=CC=C(C(OC)=O)C=C1"
+        reactants = "CCC[CH2].CCCCCC"
 
-    start_time = time.time()
-    prods = expand(reactants, args.rand_one)
-    # prods = expand(args.input_reactants, reaction_type)
+    prods = expand(reactants, args.reaction_type)
 
-    # print(prods[random.randint(1, len(prods))])
-    # print(prods)
-    print("Number of products: %i" % len(prods))
-    print("Time: %s" % (time.time() - start_time))
+    for item in prods:
+        reaction = reactants + "" + items[0] + " " + items[1]
+        print(reaction)
 
 
-def expand(reactants, rand_one: bool):
+def expand(reactants, reaction_type="polar"):
     """
     Given a set of reactant molecules, extract all
     source and sink atoms and generate all the plausible
@@ -39,15 +36,20 @@ def expand(reactants, rand_one: bool):
 
     Args:
         reactants (str): SMILES string delim with ".".
-        rand_one (bool): if true will just randomly get one
+        reaction_type (str): polar or radical.
 
     returns:
         (list): list of all the generated SMILES strings.
     """
     atoms = SAO.atomObjFromReactantSmi(reactants)
-    ops = SOO.orbPairObjectsFromAtoms(atoms, atoms, rand_one=rand_one)
+    if reaction_type.lower() == "polar":
+        ops = SOO.orbPairObjectsFromAtoms(atoms, atoms)
+    elif reaction_type.lower() == "radical":
+        ops = SOO.orbPairObjectsFromAtoms(atoms, atoms, radical=True)
+    else:
+        sys.exit("reaction type is not supported.")
 
-    return [op.productSmiles for op in ops]
+    return [(op.productSmiles, op.arrowCodes) for op in ops]
 
 
 if __name__ == "__main__":
