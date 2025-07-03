@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Editor swap files
+*.swp
+*.swo
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+*.o
+*.a
+*.out
+*.class
+*.pyd
+
+# MacOS system files
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VSCode settings
+.vscode/ 

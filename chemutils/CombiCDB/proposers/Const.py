@@ -1,6 +1,5 @@
 """Various constants for use by the reaction processing modules"""
 
-import logging
 import chemutils.CombiCDB.Env as Env
 
 """Not functionally important, just indicates an estimate of the number
@@ -16,4 +15,3 @@ LOGGER_LEVEL = Env.LOGGER_LEVEL
 
 """Default format of logger output"""
 LOGGER_FORMAT = "[%(asctime)s %(levelname)s] %(message)s"
-

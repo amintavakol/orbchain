@@ -5,13 +5,15 @@ from orb_pair.utils import *
 from atom.utils import *
 from orb_pair.modules.simple_orbpair_object import SimpleOrbPairObject as SOO
 from atom.modules.simple_atom_object import SimpleAtomObject as SAO
-from chemutils.Common.Util import smi_to_unique_smi_fast, smi_to_unique_smi_map
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("input_reactants", type=str, help="the reactants for which you want to generate all the "
-                                                          "products.")
+    parser.add_argument(
+        "input_reactants",
+        type=str,
+        help="the reactants for which you want to generate all the " "products.",
+    )
     parser.add_argument("reaction_type", help="polar or radical")
 
     args = parser.parse_args()
@@ -53,4 +55,4 @@ def expand(reactants, reaction_type="polar"):
 
 
 if __name__ == "__main__":
-   sys.exit(main()) 
+    sys.exit(main())

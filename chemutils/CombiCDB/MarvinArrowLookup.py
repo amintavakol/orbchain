@@ -3,11 +3,13 @@ from cgi import parse_qsl
 
 ## Some chemutils specific entries:
 from chemutils.Common.Env import JAVA_DEPICT_HOST
-CHEMAXON_MARVIN_URL = 'http://%s/arrow-webapp/ArrowWebService' % JAVA_DEPICT_HOST;
 
 from chemutils.Common.Util import molBySmiles
-from chemutils.CombiCDB.ArrowCodesToOrbitals import orbitalPairFromArrowStr, ArrowConversionError
-from chemutils.CombiCDB.ArrowCodesToOrbitals import BondDoesNotExistException
+from chemutils.CombiCDB.ArrowCodesToOrbitals import (
+    orbitalPairFromArrowStr,
+)
+
+CHEMAXON_MARVIN_URL = "http://%s/arrow-webapp/ArrowWebService" % JAVA_DEPICT_HOST
 
 def arrowToOrbital(smiles, arrowCodes):
     """Convert arrow representations into orbitals format"""
@@ -24,7 +26,7 @@ def arrowToOrbital(smiles, arrowCodes):
 
 def marvinXMLToDict(marvinXML):
     """Call the marvin webservice and get the respective smiles and arrow codes
-    
+
     Arguments:
     - `marvinXML`:
 
@@ -33,10 +35,7 @@ def marvinXMLToDict(marvinXML):
     - arrowdesc
     - warnings
     """
-    queryDict = {
-        'action': 'mrv2smi',
-        'mrvxml' : marvinXML
-        }
+    queryDict = {"action": "mrv2smi", "mrvxml": marvinXML}
     queryStr = urlencode(queryDict)
 
     theURL = CHEMAXON_MARVIN_URL + "?" + queryStr
@@ -44,12 +43,11 @@ def marvinXMLToDict(marvinXML):
 
     res = dict(parse_qsl(dataString))
 
-    if 'smiles' not in res:
-        res['smiles'] = '';
-    if 'arrowdesc' not in res:
-        res['arrowdesc'] = ''
-    if 'warnings' not in res:
-        res['warnings'] = ''
-    
-    return res;
+    if "smiles" not in res:
+        res["smiles"] = ""
+    if "arrowdesc" not in res:
+        res["arrowdesc"] = ""
+    if "warnings" not in res:
+        res["warnings"] = ""
 
+    return res

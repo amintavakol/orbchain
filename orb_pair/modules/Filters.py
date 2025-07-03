@@ -2,27 +2,19 @@
 Some simple fitlers to remove some nonsense reactions which get put up on top.
 
 """
-import sys, os
 
 from chemutils.Common.Util import molBySmiles
 from openeye.oechem import *
-from chemutils.Common.Util import log
 
-from atom.modules.simple_atom_object import SimpleAtomObject
-from chemutils.CombiCDB.proposers.ResonanceStructUtil import ResonanceStructUtil
-from chemutils.Common.Util import smi_to_unique_smi_fast, mol_to_unique_smi_fast
+from chemutils.Common.Util import smi_to_unique_smi_fast
 
-import operator
-import math
 
 
 class Filters(object):
-    """A filter to throw out nonsense reactions
-    """
+    """A filter to throw out nonsense reactions"""
 
     def __init__(self, filterList=None):
-        """Setup default filterList
-        """
+        """Setup default filterList"""
         self.filterList = filterList
         if self.filterList is None:
             self.setupDefaultFilters()
@@ -39,7 +31,7 @@ class Filters(object):
         for f in self.filterList:
             val = f(op)
             if not val:
-                return val;
+                return val
         return True
 
 
@@ -58,7 +50,7 @@ class LoneHydrogenFilter(BaseOPFilter):
     """Return false if there is a lone hydrogen in the products"""
 
     def __call__(self, op):
-        """Like it says above """
+        """Like it says above"""
         mol = molBySmiles(op.productSmiles)
         for atom in mol.GetAtoms():
             if atom.GetAtomicNum() == 1 and atom.GetDegree() == 0:
@@ -71,11 +63,11 @@ class BadProductFilter(BaseOPFilter):
     """Re: DVV request. Return false if there is a single unwanted product by formula"""
 
     def __init__(self):
-        self.bad_product_formulae = set(['CH3+', 'CH3-', 'H+', 'H-'])
+        self.bad_product_formulae = set(["CH3+", "CH3-", "H+", "H-"])
         self.failed_orbpair = []
 
     def __call__(self, op):
-        mol_parts = op.productSmiles.split('.')
+        mol_parts = op.productSmiles.split(".")
         mol = OEGraphMol()
         for part in mol_parts:
             OEParseSmiles(mol, part)
@@ -88,12 +80,10 @@ class BadProductFilter(BaseOPFilter):
 
 
 class OrbPairRules(object):
-    """A filter to throw out nonsense reactions
-    """
+    """A filter to throw out nonsense reactions"""
 
     def __init__(self, rule_list=None):
-        """Setup default filterList
-        """
+        """Setup default filterList"""
         self.rule_list = rule_list
         if self.rule_list is None:
             self.setup_default_rules()
@@ -108,26 +98,26 @@ class OrbPairRules(object):
             Pka_Pkb(),
             GeometryRule(),
             NegativeClBrI(),
-            NeutralOxygen()
+            NeutralOxygen(),
         ]
 
     def __call__(self, op):
         """Run through each of the filters, if any return false, return false"""
-        if op.sinkAtom and op.srcAtom:  # for pathway search we need to check this before applying the rules. Otherwise you will get into trouble!
+        if (
+            op.sinkAtom and op.srcAtom
+        ):  # for pathway search we need to check this before applying the rules. Otherwise you will get into trouble!
             for f in self.rule_list:
                 val = f(op)
                 if not val:
-                    return val;
+                    return val
             return True
 
 
 class TransitionState(object):
-    """Transition State filter.
-    """
+    """Transition State filter."""
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
         self.MAX_SOURCE_SINK_DISTANCE = 6
 
@@ -141,8 +131,8 @@ class TransitionState(object):
 
     def src_sink_distance(self, op):
         """Only allow sources and sinks to combine
-        if they form transition states of less than 7 
-        or 8 atoms. Maybe make it a checkbox such as 
+        if they form transition states of less than 7
+        or 8 atoms. Maybe make it a checkbox such as
         allow 7 or 8 member transition states"""
         distance = OEGetPathLength(op.srcAtom.atom, op.sinkAtom.atom)
         if distance > self.MAX_SOURCE_SINK_DISTANCE:
@@ -152,12 +142,10 @@ class TransitionState(object):
 
 
 class HydrogenSink(object):
-    """Hydrogen Sink filter.
-    """
+    """Hydrogen Sink filter."""
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
         self.ALLOWED_TRANSITION_MEMBER = [1, 2, 3, 6]
 
@@ -170,12 +158,14 @@ class HydrogenSink(object):
             return True
 
     def hydrogen_sink_transition_member(self, op):
-        """only allow sources to combine with hydrogen sinks 
-        on the same molecule that form 5 and 6 member 
+        """only allow sources to combine with hydrogen sinks
+        on the same molecule that form 5 and 6 member
         transition states.
         """
         if op.sinkAtom.atom.GetAtomicNum() == 1:
-            if OEMolToSmiles(op.srcAtom.atom.GetParent()) == OEMolToSmiles(op.sinkAtom.atom.GetParent()):
+            if OEMolToSmiles(op.srcAtom.atom.GetParent()) == OEMolToSmiles(
+                op.sinkAtom.atom.GetParent()
+            ):
                 distance = OEGetPathLength(op.srcAtom.atom, op.sinkAtom.atom)
                 if distance in self.ALLOWED_TRANSITION_MEMBER:
                     return True
@@ -184,12 +174,10 @@ class HydrogenSink(object):
 
 
 class SourceOrbitals(object):
-    """Source Orbitals filter.
-    """
+    """Source Orbitals filter."""
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
         self.atom_list = [7, 8, 9, 15, 16, 17, 35, 53]  # [N, O, F, P, S, Cl, Br, I]
         self.ALLOWED_ORBITALS = ["sp", "sp2", "sp3"]
@@ -203,7 +191,7 @@ class SourceOrbitals(object):
             return True
 
     def srcOrbital_check(self, op):
-        """allow only sp3, sp2, and sp orbitals of 
+        """allow only sp3, sp2, and sp orbitals of
         O, S, N, P, F, Cl, Br and, I for SOURCES."""
         if op.srcAtom.atom.GetAtomicNum() in self.atom_list:
             if op.srcOrb.type == "sigma":
@@ -224,12 +212,10 @@ class SourceOrbitals(object):
 
 
 class TetrahedralIntermediate(object):
-    """Source Orbitals filter.
-    """
+    """Source Orbitals filter."""
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
 
     def __call__(self, op):
@@ -266,7 +252,9 @@ class TetrahedralIntermediate(object):
         if atom.GetDegree() == 4:
             for bond in atom.GetBonds():
                 nbr = bond.GetNbr(atom)
-                neighbors[nbr.GetAtomicNum(), nbr.GetFormalCharge(), nbr.GetDegree()] = nbr
+                neighbors[
+                    nbr.GetAtomicNum(), nbr.GetFormalCharge(), nbr.GetDegree()
+                ] = nbr
         # there are 6 substructures which should be checked for carbon
         # tetrahedral intermediate.
 
@@ -305,12 +293,10 @@ class TetrahedralIntermediate(object):
 
 
 class Pka_Pkb(object):
-    """Filter based on the reactivity of different substructures.
-    """
+    """Filter based on the reactivity of different substructures."""
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
         self.pka_dict_original = {
             "I[H:1]": -10,
@@ -429,7 +415,7 @@ class Pka_Pkb(object):
             "[H:1][N]1CCOCC1": 31.36,
             "NCC[N]([H:1])[H]": 32.95,
             "[H:1][N]1CCCC1": 34.27,
-            "[H:1][N]1CCCCC1": 34.22
+            "[H:1][N]1CCCCC1": 34.22,
         }
         self.pkb_dict_original = {
             "[I-:1]": 24,
@@ -551,14 +537,32 @@ class Pka_Pkb(object):
             "O=C(C(C(C)C)[N:1]([H])[H])[O-]": 4.31,
             "O=C(C(C(C)C)[N:1]([H])[H])O": 5.31,
             "O=C(C[NH3+])[O-:1]": 11.66,
-            "O=C(C[N:1]([H])[H])[O-]": 4.4
+            "O=C(C[N:1]([H])[H])[O-]": 4.4,
         }
-        self.pka_dict = dict(zip(map(lambda x: self.smi_to_unique_smi_map(x), self.pka_dict_original.keys()),
-                                 self.pka_dict_original.values()))
-        self.pkb_dict = dict(zip(map(lambda x: self.smi_to_unique_smi_map(x), self.pkb_dict_original.keys()),
-                                 self.pkb_dict_original.values()))
-        self.canonicalized_pka = map(lambda x: smi_to_unique_smi_fast(x), self.pka_dict.keys())
-        self.canonicalized_pkb = map(lambda x: smi_to_unique_smi_fast(x), self.pkb_dict.keys())
+        self.pka_dict = dict(
+            zip(
+                map(
+                    lambda x: self.smi_to_unique_smi_map(x),
+                    self.pka_dict_original.keys(),
+                ),
+                self.pka_dict_original.values(),
+            )
+        )
+        self.pkb_dict = dict(
+            zip(
+                map(
+                    lambda x: self.smi_to_unique_smi_map(x),
+                    self.pkb_dict_original.keys(),
+                ),
+                self.pkb_dict_original.values(),
+            )
+        )
+        self.canonicalized_pka = map(
+            lambda x: smi_to_unique_smi_fast(x), self.pka_dict.keys()
+        )
+        self.canonicalized_pkb = map(
+            lambda x: smi_to_unique_smi_fast(x), self.pkb_dict.keys()
+        )
         self.canon_pka_dict = dict(zip(self.canonicalized_pka, self.pka_dict.values()))
         self.canon_pkb_dict = dict(zip(self.canonicalized_pkb, self.pkb_dict.values()))
 
@@ -575,39 +579,58 @@ class Pka_Pkb(object):
         Among all the sources attacking to a hydrogen sink, the one woth the lowest pkb is favourable.
         """
         if op.sinkAtom.atom.GetAtomicNum() == 1:
-            clean_sink_mol = smi_to_unique_smi_fast(self.take_out_active_mol(op.sinkAtom.atom))
-            clean_source_mol = smi_to_unique_smi_fast(self.take_out_active_mol(op.srcAtom.atom))
+            clean_sink_mol = smi_to_unique_smi_fast(
+                self.take_out_active_mol(op.sinkAtom.atom)
+            )
+            clean_source_mol = smi_to_unique_smi_fast(
+                self.take_out_active_mol(op.srcAtom.atom)
+            )
             sink_mol = self.take_out_active_mol(op.sinkAtom.atom)
             source_mol = self.take_out_active_mol(op.srcAtom.atom)
             sink_reactants = set((smi_to_unique_smi_fast(op.reactantSmiles).split(".")))
             sink_reactants.remove(clean_source_mol)
             # log.debug("clean source is removed")
-            source_reactants = set((smi_to_unique_smi_fast(op.reactantSmiles).split(".")))
+            source_reactants = set(
+                (smi_to_unique_smi_fast(op.reactantSmiles).split("."))
+            )
             source_reactants.remove(clean_sink_mol)
             # log.debug("clean sink is removed")
-            if clean_source_mol in self.canonicalized_pkb and clean_sink_mol in self.canonicalized_pka:
+            if (
+                clean_source_mol in self.canonicalized_pkb
+                and clean_sink_mol in self.canonicalized_pka
+            ):
                 return False
-            elif len(
-                    sink_reactants.intersection(set(self.canonicalized_pka))) >= 2 and sink_mol in self.pka_dict.keys():
+            elif (
+                len(sink_reactants.intersection(set(self.canonicalized_pka))) >= 2
+                and sink_mol in self.pka_dict.keys()
+            ):
                 # log.debug("more than one for sinks")
                 # log.debug("sink:%s"%(sink_mol))
                 sink_pka_scores = {}
                 sink_pka = float(self.pka_dict[sink_mol])
                 for mol in sink_reactants.intersection(set(self.canonicalized_pka)):
                     sink_pka_scores[mol] = self.canon_pka_dict[mol]
-                if min(sink_pka_scores, key=lambda k: sink_pka_scores[k]) == clean_sink_mol:
+                if (
+                    min(sink_pka_scores, key=lambda k: sink_pka_scores[k])
+                    == clean_sink_mol
+                ):
                     return False
                 else:
                     return True
-            elif len(source_reactants.intersection(
-                    set(self.canonicalized_pkb))) >= 2 and source_mol in self.pkb_dict.keys():
+            elif (
+                len(source_reactants.intersection(set(self.canonicalized_pkb))) >= 2
+                and source_mol in self.pkb_dict.keys()
+            ):
                 # log.debug("more than one for sinks")
                 # log.debug("sink:%s"%(sink_mol))
                 source_pkb_scores = {}
                 source_pkb = float(self.pkb_dict[source_mol])
                 for mol in source_reactants.intersection(set(self.canonicalized_pkb)):
                     source_pkb_scores[mol] = self.canon_pkb_dict[mol]
-                if min(source_pkb_scores, key=lambda k: source_pkb_scores[k]) == clean_source_mol:
+                if (
+                    min(source_pkb_scores, key=lambda k: source_pkb_scores[k])
+                    == clean_source_mol
+                ):
                     return False
                 else:
                     return True
@@ -615,7 +638,7 @@ class Pka_Pkb(object):
         return False
 
     def take_out_active_mol(self, active_atom):
-        """A stupid method to take out the mol 
+        """A stupid method to take out the mol
         containing src or sink atom from an op object"""
         mol = active_atom.GetParent()
         for atom in mol.GetAtoms():
@@ -623,7 +646,7 @@ class Pka_Pkb(object):
                 atom.SetMapIdx(1)
             else:
                 atom.SetMapIdx(0)
-        smiles = OEMolToSmiles(mol).split('.')
+        smiles = OEMolToSmiles(mol).split(".")
         for smi in smiles:
             small_mol = OEGraphMol()
             OESmilesToMol(small_mol, smi)
@@ -638,14 +661,21 @@ class Pka_Pkb(object):
         mol = OEGraphMol()
         OEParseSmiles(mol, smi)
         OEAssignAromaticFlags(mol)
-        return OECreateSmiString(mol, OEOFlavor_ISM_Default - OEOFlavor_ISM_AtomStereo - OEOFlavor_ISM_BondStereo)
+        return OECreateSmiString(
+            mol,
+            OEOFlavor_ISM_Default - OEOFlavor_ISM_AtomStereo - OEOFlavor_ISM_BondStereo,
+        )
 
 
 class GeometryRule(object):
-
     def __init__(self):
         self.failed_orbpair = []
-        self.funcs = [self.bredt_check, self.geometry_check_1, self.geometry_check_2, self.geometry_check_3]
+        self.funcs = [
+            self.bredt_check,
+            self.geometry_check_1,
+            self.geometry_check_2,
+            self.geometry_check_3,
+        ]
 
     def __call__(self, op):
         if OEGetPathLength(op.srcAtom.atom, op.sinkAtom.atom):
@@ -661,7 +691,12 @@ class GeometryRule(object):
         source = op.srcAtom.atom
         sink = op.sinkAtom.atom
         atoms, bonds = self.make_path_and_bonds(source, sink)
-        funcs = [self.bredt_check, self.geometry_check_1, self.geometry_check_2, self.geometry_check_3]
+        funcs = [
+            self.bredt_check,
+            self.geometry_check_1,
+            self.geometry_check_2,
+            self.geometry_check_3,
+        ]
         # funcs = [self.geometry_check_1]
         for fun in funcs:
             if fun(atoms, bonds):
@@ -697,23 +732,33 @@ class GeometryRule(object):
             if OEAtomIsInRingSize(atoms[0], 6):
                 if OEAtomIsInRingSize(atoms[1], 6):
                     # if OEAtomIsInRingSize(atoms[2], 6) and bonds[0].IsAromatic() and bonds[1].IsAromatic(): #aromatic ring
-                    if OEAtomIsInRingSize(atoms[2], 6) and OEBondIsInRingSize(bonds[0], 6) and OEBondIsInRingSize(
-                            bonds[1], 6):  # aromatic ring
+                    if (
+                        OEAtomIsInRingSize(atoms[2], 6)
+                        and OEBondIsInRingSize(bonds[0], 6)
+                        and OEBondIsInRingSize(bonds[1], 6)
+                    ):  # aromatic ring
                         return True
                     else:
                         return False
                 else:
                     return False
-            elif OEAtomIsInRingSize(atoms[1], 6) and OEAtomIsInRingSize(atoms[2], 6) and bonds[
-                0].GetOrder() == 1 and OEBondIsInRingSize(bonds[1], 6) \
-                    and OEBondIsInRingSize(bonds[2], 6):
+            elif (
+                OEAtomIsInRingSize(atoms[1], 6)
+                and OEAtomIsInRingSize(atoms[2], 6)
+                and bonds[0].GetOrder() == 1
+                and OEBondIsInRingSize(bonds[1], 6)
+                and OEBondIsInRingSize(bonds[2], 6)
+            ):
                 return True
             else:
                 return False
         elif len(atoms) == 3:
-            if OEAtomIsInRingSize(atoms[0], 6) and OEAtomIsInRingSize(atoms[1], 6) and OEBondIsInRingSize(bonds[0],
-                                                                                                          6) and OEBondIsInRingSize(
-                    bonds[1], 6):
+            if (
+                OEAtomIsInRingSize(atoms[0], 6)
+                and OEAtomIsInRingSize(atoms[1], 6)
+                and OEBondIsInRingSize(bonds[0], 6)
+                and OEBondIsInRingSize(bonds[1], 6)
+            ):
                 return True
             else:
                 return False
@@ -722,9 +767,12 @@ class GeometryRule(object):
 
     def geometry_check_1(self, atoms, bonds):
         if len(atoms) == 3:
-            if OEAtomIsInRingSize(atoms[0], 6) and OEAtomIsInRingSize(atoms[1], 6) and OEBondIsInRingSize(bonds[0],
-                                                                                                          6) and bonds[
-                1].GetOrder() == 1:
+            if (
+                OEAtomIsInRingSize(atoms[0], 6)
+                and OEAtomIsInRingSize(atoms[1], 6)
+                and OEBondIsInRingSize(bonds[0], 6)
+                and bonds[1].GetOrder() == 1
+            ):
                 return True
             else:
                 return False
@@ -753,7 +801,11 @@ class GeometryRule(object):
 
     def geometry_check_3(self, atoms, bonds):
         if len(atoms) == 4:
-            if OEAtomIsInRingSize(atoms[1], 6) and OEAtomIsInRingSize(atoms[2], 6) and OEBondIsInRingSize(bonds[1], 6):
+            if (
+                OEAtomIsInRingSize(atoms[1], 6)
+                and OEAtomIsInRingSize(atoms[2], 6)
+                and OEBondIsInRingSize(bonds[1], 6)
+            ):
                 return True
             else:
                 return False
@@ -767,8 +819,7 @@ class NegativeClBrI(object):
     """
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
         self.special_atoms = [17, 35, 53]  # Cl, Br, I
 
@@ -783,13 +834,20 @@ class NegativeClBrI(object):
     def main(self, op):
         """Do not let Cl-, Br-, I-, attack carbon on neutral
         molecules if it makes less molecules in the product"""
-        if op.srcAtom.atom.GetAtomicNum() in self.special_atoms and op.srcAtom.atom.GetFormalCharge() == -1 and op.sinkAtom.atom.GetAtomicNum() == 6:
+        if (
+            op.srcAtom.atom.GetAtomicNum() in self.special_atoms
+            and op.srcAtom.atom.GetFormalCharge() == -1
+            and op.sinkAtom.atom.GetAtomicNum() == 6
+        ):
             net_charge = 0
             mol = op.sinkAtom.atom.GetParent()
             OEAddExplicitHydrogens(mol)
             for atom in mol.GetAtoms():
                 net_charge += atom.GetFormalCharge()
-            if len(op.reactantSmiles.split('.')) > len(op.productSmiles.split('.')) and net_charge == 0:
+            if (
+                len(op.reactantSmiles.split(".")) > len(op.productSmiles.split("."))
+                and net_charge == 0
+            ):
                 return True
             else:
                 return False
@@ -803,8 +861,7 @@ class NeutralOxygen(object):
     """
 
     def __init__(self):
-        """constructor
-        """
+        """constructor"""
         self.failed_orbpair = []
 
     def __call__(self, op):
@@ -816,18 +873,25 @@ class NeutralOxygen(object):
             return True
 
     def main(self, op):
-        """Do not let neutral oxygen attack carbon on neutral 
-        or negative molecules if it makes less molecules in 
-        the product. 
-        (NOTE:we might need to make exceptions for anhydrides 
+        """Do not let neutral oxygen attack carbon on neutral
+        or negative molecules if it makes less molecules in
+        the product.
+        (NOTE:we might need to make exceptions for anhydrides
         later on but we can have this for now.)"""
-        if op.srcAtom.atom.GetAtomicNum() == 8 and op.srcAtom.atom.GetFormalCharge() == 0 and op.sinkAtom.atom.GetAtomicNum() == 6:
+        if (
+            op.srcAtom.atom.GetAtomicNum() == 8
+            and op.srcAtom.atom.GetFormalCharge() == 0
+            and op.sinkAtom.atom.GetAtomicNum() == 6
+        ):
             net_charge = 0
             mol = op.sinkAtom.atom.GetParent()
             OEAddExplicitHydrogens(mol)
             for atom in mol.GetAtoms():
                 net_charge += atom.GetFormalCharge()
-            if len(op.reactantSmiles.split('.')) > len(op.productSmiles.split('.')) and net_charge <= 0:
+            if (
+                len(op.reactantSmiles.split(".")) > len(op.productSmiles.split("."))
+                and net_charge <= 0
+            ):
                 return True
             else:
                 return False

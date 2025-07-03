@@ -1,69 +1,74 @@
-import sys, os;
-from optparse import OptionParser;
-import random;
-#from sets import Set;
-from openeye.oechem import OECreateIsoSmiString;
-from queue import Queue, Empty
+import sys
+from optparse import OptionParser
+import random
 
-#from mx.DateTime import now;
-from datetime import datetime;
-from chemutils.Common.Util import splitCompositeSmilesToList, splitCompositeMol, molToSmiList;
-from chemutils.Common.Util import ProgressDots, molBySmiles, atomCount;
-from chemutils.Common.Util import createStandardSmiString, standardizeSmiles;
-from chemutils.CombiCDB.ReactionModel import REACTANTS, REAGENT, PRODUCTS, SUPPLEMENTAL;
-from chemutils.CombiCDB.ReactionModel import SMIRKSReagent, reactionStepStr, SupplementalDataModel;
-from chemutils.CombiCDB.ReagentManager import ReagentManager, ReagentSearchModel;
-from chemutils.Common import DBUtil;
-from chemutils.Common.Model import SQLQuery, modelListFromTable, modelDictFromList;
-from chemutils.CombiCDB.SynthesisUtil import analyzeProductMixture;
-from chemutils.CombiCDB.SynthesisManager import SynthesisManager, SynthesisRequestModel;
+# from sets import Set;
+from openeye.oechem import OECreateIsoSmiString
 
-from chemutils.CombiCDB.Const import MOL_LIST_DELIM, REACTION_PROFILE_DELIM;
-from chemutils.CombiCDB.Const import MAX_TRIES, CACHE_CODE, SAMPLE_REACTION_CLASS;
-from chemutils.CombiCDB.Const import REQUIRED_ATOMIC_NUMS;
-from chemutils.CombiCDB.Const import OK, CAUTION, WARNING, ERROR;
-from chemutils.CombiCDB.Const import SYNTHESIS_CACHE_MAX, SYNTHESIS_CACHE_SCALEBACK;
-from chemutils.CombiCDB.Util import log;
+# from mx.DateTime import now;
+from chemutils.Common.Util import (
+    splitCompositeMol,
+    molToSmiList,
+)
+from chemutils.Common.Util import ProgressDots, molBySmiles, atomCount
+from chemutils.Common.Util import createStandardSmiString
+from chemutils.CombiCDB.ReactionModel import REACTANTS, REAGENT, PRODUCTS, SUPPLEMENTAL
+from chemutils.CombiCDB.ReactionModel import (
+    SupplementalDataModel,
+)
+from chemutils.CombiCDB.ReagentManager import ReagentManager, ReagentSearchModel
+from chemutils.Common import DBUtil
+from chemutils.Common.Model import SQLQuery, modelDictFromList
+from chemutils.CombiCDB.SynthesisUtil import analyzeProductMixture
+from chemutils.CombiCDB.SynthesisManager import SynthesisManager, SynthesisRequestModel
+
+from chemutils.CombiCDB.Const import MOL_LIST_DELIM
+from chemutils.CombiCDB.Const import MAX_TRIES
+from chemutils.CombiCDB.Const import REQUIRED_ATOMIC_NUMS
+from chemutils.CombiCDB.Const import WARNING
+from chemutils.CombiCDB.Const import SYNTHESIS_CACHE_MAX, SYNTHESIS_CACHE_SCALEBACK
+from chemutils.CombiCDB.Util import log
+
 
 class SynthesisGenerator:
     """Given a set of starting reactant molecules and reagent objects which
     can perform reactions on appropriate reactants, randomly apply the reagents
     to the reactants in sequence (and parallel) to generate a product that
     could conceivably be synthesized with such components.
-    
-    Furthermore, provide the ordered list of reactants, reagents, and 
+
+    Furthermore, provide the ordered list of reactants, reagents, and
     intermediate products to yield the synthesized product.
     """
-    
+
     # Maximum number of reaction steps to generate for a new synthesis
-    maxSteps = None;
-    
+    maxSteps = None
+
     # Maximum number of tries in making a new synthesis to find the "best" most interesting one
-    maxTries = None;
-    
+    maxTries = None
+
     # If a dictionary is provided, when doing reagent lookups, etc.
     #   will first look for them in the cache, instead of querying the database.
     #   will subsequently store any queried reagents in the cache as well, to save future query times.
-    objectCache = None;
+    objectCache = None
 
     # Can specify a source to produce DB connection objects other than the default
-    connFactory = None;
-    
+    connFactory = None
+
     # Reference to a synthesis manager object to take care of saving, loading, etc.
-    manager = None;
-    
+    manager = None
+
     def __init__(self, maxSteps=0, maxTries=MAX_TRIES):
         """Initialization constructor.  Parameters to specify"""
-        self.maxSteps = maxSteps;
-        self.maxTries = maxTries;
-        self.objectCache = None;
-        self.manager = SynthesisManager();
-    
-    def __call__(self, reactantSmilesList, reagentList, reactionCategoryIDs=None ):
+        self.maxSteps = maxSteps
+        self.maxTries = maxTries
+        self.objectCache = None
+        self.manager = SynthesisManager()
+
+    def __call__(self, reactantSmilesList, reagentList, reactionCategoryIDs=None):
         """Primary execution method, expects a list of molecules as the
         starting reactants and a list of BaseReagent objects that can be applied
         to the reactants.
-        
+
         Result follows reactionSteps structure of chemutils/Web/cgibin/reaction/PathwayWeb.py
         which is just a list of 3-ples, each consisting of:
             (1) List of reactant SMILES strings
@@ -71,681 +76,890 @@ class SynthesisGenerator:
             (3) List of product SMILES strings generated by applying the reagent to the reactants
         Assuming these represent a sequential reaction pathway, the final product(s)
         would be the product of the last (-1 index) 3-ple.
-        
+
         The length of the reactionSteps results (i.e., number of steps in the synthesis
-        pathway), is determined by how many sequential steps can be found, 
+        pathway), is determined by how many sequential steps can be found,
         up to the maxSteps class attribute.
-        
+
         To get results containing actual reactant and product molecule objects,
         possibly including additional reaction notes such as warning messages,
         use the generateSynthesis method directly.
-        
+
         reactionCategoryIDs:  Set of reaction_category_id values.  If provided, then
             any reagents used which indicate applicability for only some categories
             will be checked against this set to ensure they are acceptable.
         """
-        reactionSteps = self.generateSynthesis( reactantSmilesList, reagentList, reactionCategoryIDs );
+        reactionSteps = self.generateSynthesis(
+            reactantSmilesList, reagentList, reactionCategoryIDs
+        )
 
         # Convert molecule objects into SMILES
         for reactionStep in reactionSteps:
-            reactantSmilesList = [];
+            reactantSmilesList = []
             for reactant in reactionStep[REACTANTS]:
-                reactantSmilesList.append( OECreateIsoSmiString(reactant) );
-            reactionStep[REACTANTS] = reactantSmilesList;            
-            
-            productSmilesList = [];
-            for product in reactionStep[PRODUCTS]:
-                productSmiles = OECreateIsoSmiString(product);
-                productSmilesList.append( productSmiles );
-            reactionStep[PRODUCTS] = productSmilesList;
+                reactantSmilesList.append(OECreateIsoSmiString(reactant))
+            reactionStep[REACTANTS] = reactantSmilesList
 
-        return reactionSteps;
+            productSmilesList = []
+            for product in reactionStep[PRODUCTS]:
+                productSmiles = OECreateIsoSmiString(product)
+                productSmilesList.append(productSmiles)
+            reactionStep[PRODUCTS] = productSmilesList
+
+        return reactionSteps
 
     def generateSynthesis(self, reactantSmiList, reagentList, reactionCategoryIDs=None):
         """Same as primary execution method, but this one returns
         actual molecule objects instead of SMILES strings.
         """
-        # Just wrap the general reactant and reagent lists into intended 
+        # Just wrap the general reactant and reagent lists into intended
         #   step dictionaries, but with only 1 entry for each.
-        reactantSmisByIntendedStep = {-1: reactantSmiList};
-        reagentsByIntendedStep = {-1: reagentList};
-        
-        return self.generateSynthesisWithIntendedSteps(reactantSmisByIntendedStep, reagentsByIntendedStep, reactionCategoryIDs);
+        reactantSmisByIntendedStep = {-1: reactantSmiList}
+        reagentsByIntendedStep = {-1: reagentList}
 
-    def generateSynthesisWithIntendedSteps(self, reactantSmisByIntendedStep, reagentsByIntendedStep, reactionCategoryIDs=None, depth=0):
+        return self.generateSynthesisWithIntendedSteps(
+            reactantSmisByIntendedStep, reagentsByIntendedStep, reactionCategoryIDs
+        )
+
+    def generateSynthesisWithIntendedSteps(
+        self,
+        reactantSmisByIntendedStep,
+        reagentsByIntendedStep,
+        reactionCategoryIDs=None,
+        depth=0,
+    ):
         """Deep execution method that allows for intended step specification.
-        This takes not just a simple reactant and reagent list, 
+        This takes not just a simple reactant and reagent list,
         but instead dictionaries of multiple lists keyed by an intended step integer.
-        
+
         Allow specification of intended step for use when generating random problems.
         When generating the a numbered step in a synthesis (starting from 0 / 0-based step indexing),
-        first try using reactants / reagents in specified intended step bin, 
+        first try using reactants / reagents in specified intended step bin,
         before falling back to the complete / general list.
         """
-        log.debug("Generate synthesis, depth = %d" % depth);
-        
+        log.debug("Generate synthesis, depth = %d" % depth)
+
         # Convert SMILES into molecule objects
-        reactantsByIntendedStep = dict();
+        reactantsByIntendedStep = dict()
         for intendedStep, reactantSmis in reactantSmisByIntendedStep.iteritems():
-            reactantList = list();
+            reactantList = list()
             for smi in reactantSmis:
-                reactantList.append( molBySmiles(smi) );
-            reactantsByIntendedStep[intendedStep] = reactantList;
-        
+                reactantList.append(molBySmiles(smi))
+            reactantsByIntendedStep[intendedStep] = reactantList
+
         # Filter out uninteresting results when generating sythesis pathways
         for intendedStep, reagents in reagentsByIntendedStep.iteritems():
             for reagent in reagents:
-                reagent.removeInherentProducts = True;
-                reagent.ignoreSelfReactions = True;
-        
+                reagent.removeInherentProducts = True
+                reagent.ignoreSelfReactions = True
+
         # Extract out the complete / general use reactants and reagents
-        reactantList = list();
+        reactantList = list()
         for reactantSubList in reactantsByIntendedStep.itervalues():
-            reactantList.extend(reactantSubList);
-        reagentList = list();
+            reactantList.extend(reactantSubList)
+        reagentList = list()
         for reagentSubList in reagentsByIntendedStep.itervalues():
-            reagentList.extend(reagentSubList);
-        
-        reactionSteps = [];
+            reagentList.extend(reagentSubList)
+
+        reactionSteps = []
 
         # Observed reactants and products.  Don't do steps that reduplicate them
-        observedSmilesSet = set();
+        observedSmilesSet = set()
         for intendedStep, reactants in reactantsByIntendedStep.iteritems():
             for reactant in reactants:
-                observedSmilesSet.add( OECreateIsoSmiString(reactant) );
+                observedSmilesSet.add(OECreateIsoSmiString(reactant))
 
         # Accumulate reaction steps while valid ones are still found or reach max steps
-        carryoverProducts = None;
-        iReaction = 0;
-        synthesisFinished = (iReaction >= self.maxSteps);
+        carryoverProducts = None
+        iReaction = 0
+        synthesisFinished = iReaction >= self.maxSteps
         while not synthesisFinished:
-            log.debug("Generate reaction step %d" % iReaction);
-            
+            log.debug("Generate reaction step %d" % iReaction)
+
             # Look for reactants and reagents specifically intended for this step
-            intendedReactants = None;
-            intendedReagents = None;
+            intendedReactants = None
+            intendedReagents = None
 
             if iReaction in reactantsByIntendedStep:
-                intendedReactants = reactantsByIntendedStep[iReaction];
+                intendedReactants = reactantsByIntendedStep[iReaction]
             if iReaction in reagentsByIntendedStep:
-                intendedReagents = reagentsByIntendedStep[iReaction];
-            
-            reactionStep = self.generateReactionStep( reactantList, reagentList, intendedReactants, intendedReagents, carryoverProducts, reactionCategoryIDs );
+                intendedReagents = reagentsByIntendedStep[iReaction]
+
+            reactionStep = self.generateReactionStep(
+                reactantList,
+                reagentList,
+                intendedReactants,
+                intendedReagents,
+                carryoverProducts,
+                reactionCategoryIDs,
+            )
 
             if reactionStep is not None:
-                log.debug("reactionStep found, check for redundancy");
+                log.debug("reactionStep found, check for redundancy")
                 # Find one (and only one) of the largest products from the last step to carryover
 
-                resolvedProductList = [];   # Copy of product list, but with composites separated
+                resolvedProductList = []
+                # Copy of product list, but with composites separated
                 for productMol in reactionStep[PRODUCTS]:
-                    resolvedProductList.extend( splitCompositeMol(productMol, retainCounterIons=True) );
+                    resolvedProductList.extend(
+                        splitCompositeMol(productMol, retainCounterIons=True)
+                    )
 
                 if len(resolvedProductList) > 0:
-                    bestProduct = self.selectBestProduct(resolvedProductList);
-                    bestProductSmiles = OECreateIsoSmiString(bestProduct);
+                    bestProduct = self.selectBestProduct(resolvedProductList)
+                    bestProductSmiles = OECreateIsoSmiString(bestProduct)
                     if bestProductSmiles not in observedSmilesSet:
                         # At least one of the products is available.  Go ahead and accept this reaction step
                         # Pick first of the largest to carryover (if used weighting scheme, this should be the major product)
-                        carryoverProducts = [ molBySmiles(bestProductSmiles) ]; # A little strange, don't use bestProduct.  Instead reparse SMILES string.  Some molecule consistency is messed up otherwise
-                        observedSmilesSet.add( bestProductSmiles );
+                        carryoverProducts = [molBySmiles(bestProductSmiles)]
+                        # A little strange, don't use bestProduct.  Instead reparse SMILES string.  Some molecule consistency is messed up otherwise
+                        observedSmilesSet.add(bestProductSmiles)
 
-                        #log.debug("Using reaction step %s, %s, %s" % (reactionStep[REACTANTS], reactionStep[REAGENT]["depict_smiles"], reactionStep[PRODUCTS]) );
+                        # log.debug("Using reaction step %s, %s, %s" % (reactionStep[REACTANTS], reactionStep[REAGENT]["depict_smiles"], reactionStep[PRODUCTS]) );
 
-                        reactionSteps.append( reactionStep );
-                        iReaction += 1;
+                        reactionSteps.append(reactionStep)
+                        iReaction += 1
 
-                        # More valid reactions may be found, 
+                        # More valid reactions may be found,
                         #   when reach maxSteps
-                        synthesisFinished = (iReaction >= self.maxSteps);
+                        synthesisFinished = iReaction >= self.maxSteps
                     else:
                         # Reaction products found, but redundant to existing reactants / products
-                        synthesisFinished = True;
+                        synthesisFinished = True
                 else:
                     # No reaction products found, synthesis has no purpose to continue
-                    synthesisFinished = True;
+                    synthesisFinished = True
             else:
                 # No more valid reaction steps found, synthesis cannot be continued
-                synthesisFinished = True;
+                synthesisFinished = True
 
-        if depth+1 < self.maxTries:
-            # Try again to find to find better sequences, but put a limit on the 
+        if depth + 1 < self.maxTries:
+            # Try again to find to find better sequences, but put a limit on the
             #   maximum number of tries to prevent infinite recursion
-            alternativeReactionSteps = self.generateSynthesisWithIntendedSteps( reactantSmisByIntendedStep, reagentsByIntendedStep, reactionCategoryIDs, depth+1 );
+            alternativeReactionSteps = self.generateSynthesisWithIntendedSteps(
+                reactantSmisByIntendedStep,
+                reagentsByIntendedStep,
+                reactionCategoryIDs,
+                depth + 1,
+            )
 
-            reactionSteps = self.betterReactionSteps( reactionSteps, alternativeReactionSteps, reactionCategoryIDs );
+            reactionSteps = self.betterReactionSteps(
+                reactionSteps, alternativeReactionSteps, reactionCategoryIDs
+            )
 
-        return reactionSteps;
+        return reactionSteps
 
-    def generateReactionStep(self, reactantList, reagentList, intendedReactants=None, intendedReagents=None, requiredReactants=None, reactionCategoryIDs=None):
+    def generateReactionStep(
+        self,
+        reactantList,
+        reagentList,
+        intendedReactants=None,
+        intendedReagents=None,
+        requiredReactants=None,
+        reactionCategoryIDs=None,
+    ):
         """Generate a single reaction step, instead of an entire synthesis pathway.
         Just randomly go through the reagent list and try applying them to the reactants
         until a viable product is found.  If additional requiredReactants are specified,
         only return reaction steps that use the required reactants.
-        
+
         If any reagents used raise "required" reaction categories for usage,
         check against the reactionCategoryIDs set that we actually are covering those.
 
-        If a set of intended reactants and reagents is specified, 
-        then attempt to use the intended  reactants / reagents first before falling back 
+        If a set of intended reactants and reagents is specified,
+        then attempt to use the intended  reactants / reagents first before falling back
         to the general list.
         """
-        if requiredReactants is None and intendedReactants is not None and len(intendedReactants) == 1:
+        if (
+            requiredReactants is None
+            and intendedReactants is not None
+            and len(intendedReactants) == 1
+        ):
             # If no prior required reactants (i.e., first step of the synthesis), but do specify
             #   1 intended reactant.  Really that one should be treated like a required reactant.
-            requiredReactants = intendedReactants;
-        
-        numRequiredReactants = 0;
-        if requiredReactants is not None: 
-            numRequiredReactants = len(requiredReactants);
-        
+            requiredReactants = intendedReactants
+
+        numRequiredReactants = 0
+        if requiredReactants is not None:
+            numRequiredReactants = len(requiredReactants)
+
         # Create local copies to manipulate
-        localReagentList = list();
+        localReagentList = list()
         if intendedReagents is not None:
             # First prioritize for reagents intended for this step
-            localReagentList.extend(intendedReagents);
-            random.shuffle(localReagentList);
-        # Then look for general use reagents to fall back on 
+            localReagentList.extend(intendedReagents)
+            random.shuffle(localReagentList)
+        # Then look for general use reagents to fall back on
         #   make sure they are ordered at the end of the total list to ensure priority to the intended reagents.
-        localGeneralList = list(reagentList);
-        random.shuffle(localGeneralList);   # Shuffle the generic sub-list before adding to main list
-        localReagentList.extend(localGeneralList);
+        localGeneralList = list(reagentList)
+        random.shuffle(localGeneralList)
+        # Shuffle the generic sub-list before adding to main list
+        localReagentList.extend(localGeneralList)
 
         for reagent in localReagentList:
-            localReactantList = list();
+            localReactantList = list()
             if numRequiredReactants < reagent["expected_reactants"]:
                 # May need to add random reactants since required ones are not enough
                 if intendedReactants is not None:
                     # First prioritize for reactants intended for this step
-                    localReactantList.extend(intendedReactants);
-                    random.shuffle(localReactantList);
-                # Then look for general use Reactants to fall back on 
+                    localReactantList.extend(intendedReactants)
+                    random.shuffle(localReactantList)
+                # Then look for general use Reactants to fall back on
                 #   make sure they are ordered at the end of the total list to ensure priority to the intended Reactants.
-                localGeneralList = list(reactantList);
-                random.shuffle(localGeneralList);   # Shuffle the generic sub-list before adding to main list
-                localReactantList.extend(localGeneralList);
-            localReactantList.reverse();    # Reverse list order, because algorithm actually pops them off from the end
+                localGeneralList = list(reactantList)
+                random.shuffle(localGeneralList)
+                # Shuffle the generic sub-list before adding to main list
+                localReactantList.extend(localGeneralList)
+            localReactantList.reverse()
+            # Reverse list order, because algorithm actually pops them off from the end
 
-            activeReactants = list();   # Actual reactant subset to try with the reagent
-            products = list();  # Products found so far
+            activeReactants = list()
+            # Actual reactant subset to try with the reagent
+            products = list()
+            # Products found so far
 
             if numRequiredReactants > 0:
                 # See if any products can be created just by the original (carryover reactants);
-                activeReactants = requiredReactants;
-                supplementalData = SupplementalDataModel();
-                products = reagent( activeReactants, supplementalData );
-                if not self.acceptableReactionStep( activeReactants, reagent, products, supplementalData, reactionCategoryIDs ):
+                activeReactants = requiredReactants
+                supplementalData = SupplementalDataModel()
+                products = reagent(activeReactants, supplementalData)
+                if not self.acceptableReactionStep(
+                    activeReactants,
+                    reagent,
+                    products,
+                    supplementalData,
+                    reactionCategoryIDs,
+                ):
                     # Don't accept any of the products
-                    products = [];
+                    products = []
 
             while products == [] and localReactantList != []:
-                # No products from carryover reactants, 
+                # No products from carryover reactants,
                 #   try looking for new reactant combinations
-                activeReactants = [];
-                nonRequiredReactants = [];
+                activeReactants = []
+                nonRequiredReactants = []
 
                 if requiredReactants is not None:
-                    activeReactants.extend(requiredReactants);
+                    activeReactants.extend(requiredReactants)
 
-                for iReactant in xrange(numRequiredReactants, reagent["expected_reactants"]):
+                for iReactant in xrange(
+                    numRequiredReactants, reagent["expected_reactants"]
+                ):
                     # Add extra reactants from list to meet reagent's expected number
                     # If need more than 1 additional reactant, not very good
                     #   since this isn't trying all possible combinations.
                     if localReactantList != []:
-                        extraReactant = localReactantList.pop();
-                        nonRequiredReactants.append( extraReactant );
+                        extraReactant = localReactantList.pop()
+                        nonRequiredReactants.append(extraReactant)
 
                 if numRequiredReactants > 0:
                     # If have required reactants, check that non-required reactants by themselves don't yield products.
                     # If so, defeats the point of carrying over any required reactants.
-                    nonRequiredProducts = reagent( nonRequiredReactants );
+                    nonRequiredProducts = reagent(nonRequiredReactants)
                     if len(nonRequiredProducts) < 1:
-                        activeReactants.extend( nonRequiredReactants );
+                        activeReactants.extend(nonRequiredReactants)
                 elif len(nonRequiredReactants) > 1:
                     # No required reactants, but more than one non-required reactant
                     # Ensure that all reactants are necessary (unimolecular / self reactions are possible)
-                    nonRequiredProducts = reagent( nonRequiredReactants );
-                    nonRequiredProductsSmiList = molToSmiList( nonRequiredProducts );
-                    
+                    nonRequiredProducts = reagent(nonRequiredReactants)
+                    nonRequiredProductsSmiList = molToSmiList(nonRequiredProducts)
+
                     for nonRequiredReactant in nonRequiredReactants:
-                        singleReactantList = [nonRequiredReactant];
-                        singleReactantProducts = reagent( singleReactantList );
-                        singleReactantProductsSmiList = molToSmiList( singleReactantProducts );
+                        singleReactantList = [nonRequiredReactant]
+                        singleReactantProducts = reagent(singleReactantList)
+                        singleReactantProductsSmiList = molToSmiList(
+                            singleReactantProducts
+                        )
 
                         if singleReactantProductsSmiList == nonRequiredProductsSmiList:
-                            nonRequiredReactants = singleReactantList;
-                            break;  # This reactant alone reproduces the products (probably unimolecular / self reaction).  Don't bother using any others
-                    
-                    activeReactants.extend( nonRequiredReactants );
+                            nonRequiredReactants = singleReactantList
+                            break
+                            # This reactant alone reproduces the products (probably unimolecular / self reaction).  Don't bother using any others
+
+                    activeReactants.extend(nonRequiredReactants)
                 else:
                     # No required reactants, and only 1 nonRequiredReactant, just run normally
-                    activeReactants.extend( nonRequiredReactants );
+                    activeReactants.extend(nonRequiredReactants)
 
                 # See if the selected reactant, reagent combination actually yields product
-                supplementalData = SupplementalDataModel();
-                products = reagent( activeReactants, supplementalData );
-                if not self.acceptableReactionStep( activeReactants, reagent, products, supplementalData, reactionCategoryIDs ):
+                supplementalData = SupplementalDataModel()
+                products = reagent(activeReactants, supplementalData)
+                if not self.acceptableReactionStep(
+                    activeReactants,
+                    reagent,
+                    products,
+                    supplementalData,
+                    reactionCategoryIDs,
+                ):
                     # Don't accept any of the products
-                    products = [];
+                    products = []
 
             if len(products) > 0:
                 # Viable reaction step found.  Use it
-                reactionStep = [ activeReactants, reagent, products, supplementalData ];
-                return reactionStep;
-        
-        return None;    # No viable reaction step found
+                reactionStep = [activeReactants, reagent, products, supplementalData]
+                return reactionStep
 
-    def acceptableReactionStep(self, reactants, reagent, products, supplementalData, reactionCategoryIDs=None):
+        return None
+        # No viable reaction step found
+
+    def acceptableReactionStep(
+        self, reactants, reagent, products, supplementalData, reactionCategoryIDs=None
+    ):
         """Decide whether the generated reaction step is suitable for use in a synthesis problem"""
         for product in products:
             if product.GetIntData("warning_level_id") >= WARNING:
                 # Don't accept any reactions that yield warnings or errors or worse
-                return False;
-        
-        categoryFilterExists = reactionCategoryIDs is not None and len(reactionCategoryIDs) > 0;
+                return False
+
+        categoryFilterExists = (
+            reactionCategoryIDs is not None and len(reactionCategoryIDs) > 0
+        )
         if len(products) > 0:
             # Working within a specific set of chapters.  Check if this reagent
             #   used any chapter specific reactions and exclude if necessary,
             #   or if specifically intended usages should be considered
-            foundIntendedUsage = False;
-            for elementaryStep in supplementalData.filteredElementarySteps(reactants, products):
-                (detailReactants, reactionProfile, detailProducts) = elementaryStep;
-                if categoryFilterExists and len(reactionProfile["reactionCategoryIDSet"]) > 0:
+            foundIntendedUsage = False
+            for elementaryStep in supplementalData.filteredElementarySteps(
+                reactants, products
+            ):
+                (detailReactants, reactionProfile, detailProducts) = elementaryStep
+                if (
+                    categoryFilterExists
+                    and len(reactionProfile["reactionCategoryIDSet"]) > 0
+                ):
                     # Must have at least one of the required categories be in the currently covered category set
-                    if len( reactionProfile["reactionCategoryIDSet"].intersection(reactionCategoryIDs) ) < 1:
+                    if (
+                        len(
+                            reactionProfile["reactionCategoryIDSet"].intersection(
+                                reactionCategoryIDs
+                            )
+                        )
+                        < 1
+                    ):
                         # Required reaction categories are not covered.  Exclude this reaction
-                        return False;
+                        return False
 
-                foundIntendedUsage = foundIntendedUsage or reactionProfile["intended_usage"];
+                foundIntendedUsage = (
+                    foundIntendedUsage or reactionProfile["intended_usage"]
+                )
 
             if reagent.intendedUsageSpecified and not foundIntendedUsage:
                 # Reagent meant for specific purposes, but this is not one of them
-                return False;
+                return False
 
-        return True;    
+        return True
 
     def reactionStepScore(reactionStep, reactionCategoryIDs=None):
         """Provide a qualitative score on the relative value / quality
         of this reactionStep as a step in a synthesis
         """
         # Base score for having a step at all
-        stepScore = 100.0;
+        stepScore = 100.0
 
-        reactantAtoms = 0;
+        reactantAtoms = 0
         for reactantMol in reactionStep[REACTANTS]:
-            reactantAtoms += atomCount(reactantMol, REQUIRED_ATOMIC_NUMS);
+            reactantAtoms += atomCount(reactantMol, REQUIRED_ATOMIC_NUMS)
 
         for productMol in reactionStep[PRODUCTS]:
             # Choose which one yielded the fewest CAUTION / WARNING messages
             # If there is no warning level, assumes that GetIntData will return 0
-            stepScore -= 15 * productMol.GetIntData("warning_level_id");
+            stepScore -= 15 * productMol.GetIntData("warning_level_id")
 
             # Don't like it when lose important atoms from reactant to product side
             #   Like using up an alkoxide in an elimination reaction
             #   Should evaluate each product mol separately however to account for possibility of multiple products
-            productAtoms = 0;
-            productAtoms += atomCount(productMol, REQUIRED_ATOMIC_NUMS);
-            stepScore += (productAtoms - reactantAtoms)*10;
+            productAtoms = 0
+            productAtoms += atomCount(productMol, REQUIRED_ATOMIC_NUMS)
+            stepScore += (productAtoms - reactantAtoms) * 10
 
         # Combinatorial reactions are usually more interesting (maximize reactant count)
-        reactantCount = len(reactionStep[REACTANTS]);
-        stepScore += reactantCount * 25;
-        
+        reactantCount = len(reactionStep[REACTANTS])
+        stepScore += reactantCount * 25
+
         # Big bonus for intramolecular reactions (approximate by num reactants < expected reactants)
         if reactantCount < reactionStep[REAGENT]["expected_reactants"]:
-            stepScore += 50;
-        
+            stepScore += 50
+
         # Prefer the least ambiguous (most specific) steps (minimize product count)
-        (distinctProducts, distinctIsmProducts, unintendedProducts, unintendedStereoisomers) = analyzeProductMixture(reactionStep[PRODUCTS]);
+        (
+            distinctProducts,
+            distinctIsmProducts,
+            unintendedProducts,
+            unintendedStereoisomers,
+        ) = analyzeProductMixture(reactionStep[PRODUCTS])
 
         if distinctProducts > 0 and distinctIsmProducts > 0:
-            stepScore += (100.0 / distinctProducts);
-            stepScore += ( 40.0 / distinctIsmProducts);  # Note that this counts constitutional distinct products a second time
+            stepScore += 100.0 / distinctProducts
+            stepScore += 40.0 / distinctIsmProducts
+            # Note that this counts constitutional distinct products a second time
         else:
             # 0 products, that's bad, this is a useless step
-            stepScore -= 1000;
+            stepScore -= 1000
 
-        # Significant bonus if use steps that are chapter specific 
+        # Significant bonus if use steps that are chapter specific
         if len(reactionStep) > SUPPLEMENTAL and reactionStep[SUPPLEMENTAL] is not None:
-            # Assume is the right chapter, otherwise would have been filtered out earlier, 
+            # Assume is the right chapter, otherwise would have been filtered out earlier,
             #   so just check for any specific chapter labels
-            supplementalData = reactionStep[SUPPLEMENTAL];
-            for elementaryStep in supplementalData.filteredElementarySteps(reactionStep[REACTANTS], reactionStep[PRODUCTS]):
-                (detailReactants, reactionProfile, detailProducts) = elementaryStep;
+            supplementalData = reactionStep[SUPPLEMENTAL]
+            for elementaryStep in supplementalData.filteredElementarySteps(
+                reactionStep[REACTANTS], reactionStep[PRODUCTS]
+            ):
+                (detailReactants, reactionProfile, detailProducts) = elementaryStep
                 if len(reactionProfile["reactionCategoryIDSet"]) > 0:
-                    stepScore += 25;
-        
-        return stepScore;
+                    stepScore += 25
+
+        return stepScore
+
     reactionStepScore = staticmethod(reactionStepScore)
 
     def reactionStepsScore(reactionSteps, reactionCategoryIDs=None):
-        """Sum up the component scores for the reactionSteps.
-        """
-        score = 0;
-        
+        """Sum up the component scores for the reactionSteps."""
+        score = 0
+
         # Check which one generated more steps
         for reactionStep in reactionSteps:
-            score += SynthesisGenerator.reactionStepScore( reactionStep, reactionCategoryIDs );
-        
-        return score;
-    reactionStepsScore = staticmethod(reactionStepsScore);
-    
-    def betterReactionSteps(self, reactionSteps1, reactionSteps2, reactionCategoryIDs=None):
+            score += SynthesisGenerator.reactionStepScore(
+                reactionStep, reactionCategoryIDs
+            )
+
+        return score
+
+    reactionStepsScore = staticmethod(reactionStepsScore)
+
+    def betterReactionSteps(
+        self, reactionSteps1, reactionSteps2, reactionCategoryIDs=None
+    ):
         """Decide which reaction sequence / synthesis provides a better problem example.
         Factors considered include the longer sequence and which ones yields
         the least number of multi-product (unfocused) steps
-        
+
         Based on a quality scoring system, with some arbitrary
         scaling factors and function designs.  These should be tweaked
         until some "intuitive" results emerge.
         """
-        qualityScore1 = self.reactionStepsScore( reactionSteps1, reactionCategoryIDs );
-        qualityScore2 = self.reactionStepsScore( reactionSteps2, reactionCategoryIDs );
-        
-        if qualityScore1 > qualityScore2:
-            return reactionSteps1;
-        else:
-            return reactionSteps2;
+        qualityScore1 = self.reactionStepsScore(reactionSteps1, reactionCategoryIDs)
+        qualityScore2 = self.reactionStepsScore(reactionSteps2, reactionCategoryIDs)
 
-    def selectBestProduct( productList ):
+        if qualityScore1 > qualityScore2:
+            return reactionSteps1
+        else:
+            return reactionSteps2
+
+    def selectBestProduct(productList):
         """Given a list of product molecules, select the one that
         is best to carry over or to use as the final target.
-        
+
         Return one with most carbons but prefer lower warning_level
         """
         if len(productList) > 0:
-            bestProducts = SynthesisGenerator.selectBestProducts( productList );
-            random.shuffle(bestProducts);    # If multiple possibilities are satisfactory, pick a random one
-            return bestProducts[0];    # Just take the first of the best then
-        return None;
-    selectBestProduct = staticmethod(selectBestProduct);
+            bestProducts = SynthesisGenerator.selectBestProducts(productList)
+            random.shuffle(bestProducts)
+            # If multiple possibilities are satisfactory, pick a random one
+            return bestProducts[0]
+            # Just take the first of the best then
+        return None
 
-    def selectBestProducts( productList ):
+    selectBestProduct = staticmethod(selectBestProduct)
+
+    def selectBestProducts(productList):
         """Given a list of product molecules, select the ones that
         are the best to carry over or to use as the final target.
-        
+
         Return all with most carbons but prefer lower warning_level
         """
         if len(productList) > 0:
-            bestProductList = None;
-            bestScore = None;
+            bestProductList = None
+            bestScore = None
             for productMol in productList:
-                score = 1000 - (productMol.GetIntData("warning_level_id")*100); # Warning level should be primary determinant (lower is better)
-                score += atomCount( productMol, REQUIRED_ATOMIC_NUMS );
+                score = 1000 - (productMol.GetIntData("warning_level_id") * 100)
+                # Warning level should be primary determinant (lower is better)
+                score += atomCount(productMol, REQUIRED_ATOMIC_NUMS)
 
                 if bestScore is None or score > bestScore:
-                    bestProductList = list();   # Wipe out any previous list since they are no longer the best
-                    bestScore = score;
-                
-                if score == bestScore:
-                    bestProductList.append( productMol );
-            
-            return bestProductList;
-        else:
-            return None;
-    selectBestProducts = staticmethod(selectBestProducts);
+                    bestProductList = list()
+                    # Wipe out any previous list since they are no longer the best
+                    bestScore = score
 
-    def retrieveSyntheses( self, synthesisRequest, synthesisCount=1, generateDeficiency=True ):
+                if score == bestScore:
+                    bestProductList.append(productMol)
+
+            return bestProductList
+        else:
+            return None
+
+    selectBestProducts = staticmethod(selectBestProducts)
+
+    def retrieveSyntheses(
+        self, synthesisRequest, synthesisCount=1, generateDeficiency=True
+    ):
         """Retrieve syntheses from the database based upon the synthesisRequest.
         Many could match the criteria, so just randomly select several up to
         the synthesisCount.  If not enough exist, then generate some on
         the fly right now.
-        
+
         generateDeficiency:
            If request X syntheses, but find fewer, set this switch to have the
            system attempt to generate the remainder / deficiency.
            Ensures expected output, but can be processor intensive.
         """
         # Extract a random sample from the list of pre-cached reaction synthesis IDs
-        # Don't load actual synthesis objects yet, since most will be discarded, 
+        # Don't load actual synthesis objects yet, since most will be discarded,
         #   and it will be a waste to instantiate so many objects
-        self.manager.connFactory = self.connFactory;
-        synthesisIdList = self.manager.loadReactionSynthesisIDs( synthesisRequest, cacheOnly=True );
-        
-        synthesisList = list();
+        self.manager.connFactory = self.connFactory
+        synthesisIdList = self.manager.loadReactionSynthesisIDs(
+            synthesisRequest, cacheOnly=True
+        )
+
+        synthesisList = list()
         if len(synthesisIdList) > 0:
             # See if we want to further filter / optimize the list based on the user's knowledge map
-            if synthesisRequest.userID is not None and synthesisRequest.knowledgeMapLimit is not None:
-                from chemutils.CombiCDB.tutorial.UserKnowledgeAnalysis import UserKnowledgeAnalysis; # Only import if needed
-                analyzer = UserKnowledgeAnalysis();
-                analyzer.connFactory = self.connFactory;
-                synthesisIdList = analyzer.filterProblemListByKnowledgeFringe( synthesisIdList, synthesisRequest.userID, synthesisRequest.knowledgeMapLimit );
+            if (
+                synthesisRequest.userID is not None
+                and synthesisRequest.knowledgeMapLimit is not None
+            ):
+                from chemutils.CombiCDB.tutorial.UserKnowledgeAnalysis import (
+                    UserKnowledgeAnalysis,
+                )
+
+                # Only import if needed
+                analyzer = UserKnowledgeAnalysis()
+                analyzer.connFactory = self.connFactory
+                synthesisIdList = analyzer.filterProblemListByKnowledgeFringe(
+                    synthesisIdList,
+                    synthesisRequest.userID,
+                    synthesisRequest.knowledgeMapLimit,
+                )
 
             # Randomize which ones are returned on top
-            random.shuffle(synthesisIdList);
+            random.shuffle(synthesisIdList)
 
             if len(synthesisIdList) > synthesisCount:
                 # Only retrieve as many as requested
-                synthesisIdList = synthesisIdList[0:synthesisCount];
+                synthesisIdList = synthesisIdList[0:synthesisCount]
 
             # Have a decent list of IDs.  Now load up the actual data objects
-            requestById = SynthesisRequestModel();
-            requestById.reactionSynthesisIDs = synthesisIdList;
-            requestById.copyModiferAttributes( synthesisRequest );
-            synthesisList = self.manager.loadReactionSyntheses( requestById, cacheOnly=True );
+            requestById = SynthesisRequestModel()
+            requestById.reactionSynthesisIDs = synthesisIdList
+            requestById.copyModiferAttributes(synthesisRequest)
+            synthesisList = self.manager.loadReactionSyntheses(
+                requestById, cacheOnly=True
+            )
 
         # In case not enough exist pre-cached to fulfill the request, generate the remaining
         if generateDeficiency and len(synthesisList) < synthesisCount:
-            synthesisList.extend( self.preGenerateSyntheses(synthesisRequest, synthesisCount-len(synthesisList)) );
+            synthesisList.extend(
+                self.preGenerateSyntheses(
+                    synthesisRequest, synthesisCount - len(synthesisList)
+                )
+            )
 
         return synthesisList
-    
-    def preGenerateSyntheses( self, synthesisRequest, synthesisCount=1 ):
+
+    def preGenerateSyntheses(self, synthesisRequest, synthesisCount=1):
         """Generates a synthesis based upon the synthesisRequest,
         and then persists it into the database for rapid retrieval later.
         Return these as a list as well, just in case they are needed for immediate use.
         """
         # Setup synthesis generator parameters
-        self.maxSteps = synthesisRequest.maxSteps;
-        self.maxTries = synthesisRequest.maxTries;
+        self.maxSteps = synthesisRequest.maxSteps
+        self.maxTries = synthesisRequest.maxTries
 
         # Load reactant starting data
         # Load up reactant list from database, possibly filtered by category
-        query = SQLQuery();
-        query.addSelect("distinct r.smiles, intended_step, length(r.smiles), r.position");
-        query.addFrom("reactant as r, reaction_category_reactant as rcr");
-        query.addWhere("r.reactant_id = rcr.reactant_id");
-        query.addOrderBy("intended_step, length(r.smiles), r.position");
+        query = SQLQuery()
+        query.addSelect(
+            "distinct r.smiles, intended_step, length(r.smiles), r.position"
+        )
+        query.addFrom("reactant as r, reaction_category_reactant as rcr")
+        query.addWhere("r.reactant_id = rcr.reactant_id")
+        query.addOrderBy("intended_step, length(r.smiles), r.position")
         if len(synthesisRequest.reactionCategoryIDs) > 0:
-            query.addWhereIn("rcr.reaction_category_id", synthesisRequest.reactionCategoryIDs );
-        
-        reactantData = DBUtil.execute(query, connFactory=self.connFactory);
-        reactantSmisByIntendedStep = dict();
-        for (smiles, intendedStep, smiLen, position) in reactantData:
+            query.addWhereIn(
+                "rcr.reaction_category_id", synthesisRequest.reactionCategoryIDs
+            )
+
+        reactantData = DBUtil.execute(query, connFactory=self.connFactory)
+        reactantSmisByIntendedStep = dict()
+        for smiles, intendedStep, smiLen, position in reactantData:
             if intendedStep not in reactantSmisByIntendedStep:
-                reactantSmisByIntendedStep[intendedStep] = list();
-            reactantSmisByIntendedStep[intendedStep].append( smiles ); 
+                reactantSmisByIntendedStep[intendedStep] = list()
+            reactantSmisByIntendedStep[intendedStep].append(smiles)
 
         # Load reagent starting data but check for filter by reaction category
         # If objectCache is available, first look in there before doing a DB query and store results as appropriate
-        reagentsById = None;
+        reagentsById = None
         if self.objectCache is not None:
             if "reagentIdsByReactionCategoryId" not in self.objectCache:
                 # Not already pre-cached.  Get it from the database then, doing a full
                 #   query for all data, don't even bother filtering by category.
-                query = SQLQuery();
-                query.addSelect("rcr.reagent_id, rcr.reaction_category_id");
-                query.addFrom("reaction_category_reagent as rcr");
-                reagentData = DBUtil.execute(query, connFactory=self.connFactory);
+                query = SQLQuery()
+                query.addSelect("rcr.reagent_id, rcr.reaction_category_id")
+                query.addFrom("reaction_category_reagent as rcr")
+                reagentData = DBUtil.execute(query, connFactory=self.connFactory)
 
-                reagentIdsByReactionCategoryId = dict();
-                for (reagentId, categoryId) in reagentData:
+                reagentIdsByReactionCategoryId = dict()
+                for reagentId, categoryId in reagentData:
                     if categoryId not in reagentIdsByReactionCategoryId:
-                        reagentIdsByReactionCategoryId[categoryId] = set();    # Initialize empty set for this category
+                        reagentIdsByReactionCategoryId[categoryId] = set()
+                        # Initialize empty set for this category
 
-                    reagentIdsByReactionCategoryId[categoryId].add( reagentId );
+                    reagentIdsByReactionCategoryId[categoryId].add(reagentId)
 
-                self.objectCache["reagentIdsByReactionCategoryId"] = reagentIdsByReactionCategoryId;
+                self.objectCache[
+                    "reagentIdsByReactionCategoryId"
+                ] = reagentIdsByReactionCategoryId
 
-            reagentIdsByReactionCategoryId = self.objectCache["reagentIdsByReactionCategoryId"]; # Track which reagents belong to which categories (caching reaction_category_reagent table)
+            reagentIdsByReactionCategoryId = self.objectCache[
+                "reagentIdsByReactionCategoryId"
+            ]
+            # Track which reagents belong to which categories (caching reaction_category_reagent table)
 
             # By now, all categories should have been queried for, so we know all reagents needed
             # Check to see which of these have not already been pre-cached, and load them up
-            neededReagentIds = set();
+            neededReagentIds = set()
             for reactionCategoryId in synthesisRequest.getReactionCategoryIDSet():
-                neededReagentIds.update( reagentIdsByReactionCategoryId[reactionCategoryId] );
+                neededReagentIds.update(
+                    reagentIdsByReactionCategoryId[reactionCategoryId]
+                )
 
-            reagentManager = ReagentManager();
-            reagentManager.objectCache = self.objectCache;
-            reagentManager.connFactory = self.connFactory;
-            
-            reagentsById = reagentManager.retrieveReagentsById( neededReagentIds );
+            reagentManager = ReagentManager()
+            reagentManager.objectCache = self.objectCache
+            reagentManager.connFactory = self.connFactory
+
+            reagentsById = reagentManager.retrieveReagentsById(neededReagentIds)
         else:
             # No cache available, just do a full query from the database
-            reagentManager = ReagentManager();
-            reagentManager.connFactory = self.connFactory;
+            reagentManager = ReagentManager()
+            reagentManager.connFactory = self.connFactory
 
-            reagentQuery = ReagentSearchModel();
-            reagentQuery.reactionCategoryIDs = synthesisRequest.reactionCategoryIDs;
-            reagentQuery.enabled = True;
+            reagentQuery = ReagentSearchModel()
+            reagentQuery.reactionCategoryIDs = synthesisRequest.reactionCategoryIDs
+            reagentQuery.enabled = True
 
-            reagentList = reagentManager.loadDBInstances( reagentQuery );
-            reagentsById = modelDictFromList( reagentList, "reagent_id" );
-        
+            reagentList = reagentManager.loadDBInstances(reagentQuery)
+            reagentsById = modelDictFromList(reagentList, "reagent_id")
+
         # Query out which reagents are needed for these categories and the intended step they should fulfill
-        query = SQLQuery();
-        query.addSelect("reagent_id, intended_step");
-        query.addFrom("reaction_category_reagent as rcr");
-        query.addOrderBy("intended_step, reagent_id");
+        query = SQLQuery()
+        query.addSelect("reagent_id, intended_step")
+        query.addFrom("reaction_category_reagent as rcr")
+        query.addOrderBy("intended_step, reagent_id")
         if len(synthesisRequest.reactionCategoryIDs) > 0:
-            query.addWhereIn("rcr.reaction_category_id", synthesisRequest.reactionCategoryIDs );
-        
-        reagentData = DBUtil.execute(query, connFactory=self.connFactory);
-        reagentsByIntendedStep = dict();
-        for (reagentId, intendedStep) in reagentData:
-            reagent = reagentsById[reagentId];
+            query.addWhereIn(
+                "rcr.reaction_category_id", synthesisRequest.reactionCategoryIDs
+            )
+
+        reagentData = DBUtil.execute(query, connFactory=self.connFactory)
+        reagentsByIntendedStep = dict()
+        for reagentId, intendedStep in reagentData:
+            reagent = reagentsById[reagentId]
             if intendedStep not in reagentsByIntendedStep:
-                reagentsByIntendedStep[intendedStep] = list();
-            reagentsByIntendedStep[intendedStep].append( reagent ); 
-        
+                reagentsByIntendedStep[intendedStep] = list()
+            reagentsByIntendedStep[intendedStep].append(reagent)
+
         # Run the generator repeatedly.  Store results in database, and return at end
-        progress = ProgressDots(10,1,"Synthesis Generation");
-        conn = None;
+        progress = ProgressDots(10, 1, "Synthesis Generation")
+        conn = None
         if self.connFactory is not None:
-            conn = self.connFactory.connection();
+            conn = self.connFactory.connection()
         else:
-            conn = DBUtil.connection();
-        synthesisList = [];
+            conn = DBUtil.connection()
+        synthesisList = []
         try:
             for iSynthesis in xrange(synthesisCount):
-                reactionSteps = self.generateSynthesisWithIntendedSteps( reactantSmisByIntendedStep, reagentsByIntendedStep, synthesisRequest.getReactionCategoryIDSet() );
+                reactionSteps = self.generateSynthesisWithIntendedSteps(
+                    reactantSmisByIntendedStep,
+                    reagentsByIntendedStep,
+                    synthesisRequest.getReactionCategoryIDSet(),
+                )
                 if len(reactionSteps) > 0:
-                    reaction_synthesis_id = self.manager.saveReactionSynthesis( reactionSteps, synthesisRequest, conn=conn );
+                    reaction_synthesis_id = self.manager.saveReactionSynthesis(
+                        reactionSteps, synthesisRequest, conn=conn
+                    )
                     # Record the synthesis ID on the reactant molecules for subsequent traceback option
                     for reactionStep in reactionSteps:
                         for reactantMol in reactionStep[REACTANTS]:
-                            reactantMol.SetIntData("reaction_synthesis_id", reaction_synthesis_id );
-                    synthesisList.append( reactionSteps );
-                progress.Update();
+                            reactantMol.SetIntData(
+                                "reaction_synthesis_id", reaction_synthesis_id
+                            )
+                    synthesisList.append(reactionSteps)
+                progress.Update()
         finally:
-            conn.close();
-        progress.PrintStatus();
-        
-        # Done with any loaded reagent models, put them back in the cache so others can use them
-        reagentManager = ReagentManager();
-        reagentManager.objectCache = self.objectCache;
-        reagentManager.returnReagentsById( reagentsById );
-        
-        return synthesisList;            
+            conn.close()
+        progress.PrintStatus()
 
-    def clearSynthesisCache( self, synthesisRequest, maxAcceptable=0, maxDesired=0 ):
+        # Done with any loaded reagent models, put them back in the cache so others can use them
+        reagentManager = ReagentManager()
+        reagentManager.objectCache = self.objectCache
+        reagentManager.returnReagentsById(reagentsById)
+
+        return synthesisList
+
+    def clearSynthesisCache(self, synthesisRequest, maxAcceptable=0, maxDesired=0):
         """Look for pre-generated cached syntheses in the database that match the synthesisRequest.
-        If there are more than the maxAcceptable, delete all of the oldest ones 
+        If there are more than the maxAcceptable, delete all of the oldest ones
         until maxDesired or less remains.
         """
-        self.manager.connFactory = self.connFactory;
-        reactionSynthesisIDs = self.manager.loadReactionSynthesisIDs( synthesisRequest, cacheOnly=True );
+        self.manager.connFactory = self.connFactory
+        reactionSynthesisIDs = self.manager.loadReactionSynthesisIDs(
+            synthesisRequest, cacheOnly=True
+        )
         if len(reactionSynthesisIDs) > maxAcceptable:
-            reactionSynthesisIDs.sort();    # Assume ID order is same as chronological order.  Actually could use generation_date, but this is more convenient
-            clearIDs = tuple(reactionSynthesisIDs[0:len(reactionSynthesisIDs)-maxDesired]);    # Get the oldest ones to remove, necessary to reach maxDesired count
+            reactionSynthesisIDs.sort()
+            # Assume ID order is same as chronological order.  Actually could use generation_date, but this is more convenient
+            clearIDs = tuple(
+                reactionSynthesisIDs[0 : len(reactionSynthesisIDs) - maxDesired]
+            )
+            # Get the oldest ones to remove, necessary to reach maxDesired count
 
-            self.manager.deleteReactionSynthesis( clearIDs );
+            self.manager.deleteReactionSynthesis(clearIDs)
 
     def enumerateReactions(self, reactantList, reagentList):
         """Given a set of reactants and reagents, enumerate all combinations (reactant-reagent)
         that yield reactions with (acceptable) products.  For reagents that can accept multiple reactants,
         consider also the possibility of combining two reactants with the reagent.
-        
+
         Note that this is a generator function that only returns an iterator over the results.
         If you wish to persist or reuse the list multiple times, the caller should
         create their own list object to contain the "yielded" reactions.
         """
         # Filter out uninteresting results when generating sythesis pathways
         for reagent in reagentList:
-            reagent.removeInherentProducts = True;
-            reagent.ignoreSelfReactions = True;
-   
+            reagent.removeInherentProducts = True
+            reagent.ignoreSelfReactions = True
+
         # Keep track of which single reactant-reagent combinations worked
-        acceptedReactantReagentCombos = set();
-        
+        acceptedReactantReagentCombos = set()
+
         # Try every reactant-reagent combination
         for reagent in reagentList:
             for iReactant, reactant in enumerate(reactantList):
-                reactantReagentComboId = (createStandardSmiString(reactant), reagent["reagent_id"]);
-                
+                reactantReagentComboId = (
+                    createStandardSmiString(reactant),
+                    reagent["reagent_id"],
+                )
+
                 # See if any acceptable products are generated from this combination
-                activeReactants = [reactant];
-                supplementalData = SupplementalDataModel();
-                products = reagent( activeReactants, supplementalData );
-                
-                if len(products) > 0 and self.acceptableReactionStep( activeReactants, reagent, products, supplementalData ):
+                activeReactants = [reactant]
+                supplementalData = SupplementalDataModel()
+                products = reagent(activeReactants, supplementalData)
+
+                if len(products) > 0 and self.acceptableReactionStep(
+                    activeReactants, reagent, products, supplementalData
+                ):
                     # Found an acceptable reaction combination
-                    reactionStep = [ activeReactants, reagent, products, supplementalData ];
-                    yield reactionStep;
-                    
-                    acceptedReactantReagentCombos.add( reactantReagentComboId );
+                    reactionStep = [
+                        activeReactants,
+                        reagent,
+                        products,
+                        supplementalData,
+                    ]
+                    yield reactionStep
+
+                    acceptedReactantReagentCombos.add(reactantReagentComboId)
 
         # Do a second pass to consider reagents that may work with multi-reactant combinations
         for reagent in reagentList:
-            if reagent["expected_reactants"] > 1:   # Candidate for multi-reactant reagent
+            if (
+                reagent["expected_reactants"] > 1
+            ):  # Candidate for multi-reactant reagent
                 for iReactant, reactant in enumerate(reactantList):
-                    reactantReagentComboId = (createStandardSmiString(reactant), reagent["reagent_id"]);
-                
+                    reactantReagentComboId = (
+                        createStandardSmiString(reactant),
+                        reagent["reagent_id"],
+                    )
+
                     if reactantReagentComboId not in acceptedReactantReagentCombos:
                         # The primary reaction combination was unacceptable, but maybe this reagent will take a pair-wise combination
-                        for iSecondReactant in xrange(iReactant+1,len(reactantList)):   # Limited iterator indexing to check unique pairs only once
-                            secondReactant = reactantList[iSecondReactant];
+                        for iSecondReactant in xrange(
+                            iReactant + 1, len(reactantList)
+                        ):  # Limited iterator indexing to check unique pairs only once
+                            secondReactant = reactantList[iSecondReactant]
 
-                            secondComboId = (createStandardSmiString(secondReactant), reagent["reagent_id"]);
-                            
+                            secondComboId = (
+                                createStandardSmiString(secondReactant),
+                                reagent["reagent_id"],
+                            )
+
                             # Make sure the second reactant did not already work with the reagent either
                             if secondComboId not in acceptedReactantReagentCombos:
                                 # Try adding this second reactant into the mix
-                                comboReactants = [reactant,secondReactant];
+                                comboReactants = [reactant, secondReactant]
 
                                 # Now see if the reaction combination will yield anything interesting
-                                supplementalData = SupplementalDataModel();
-                                products = reagent( comboReactants, supplementalData );
+                                supplementalData = SupplementalDataModel()
+                                products = reagent(comboReactants, supplementalData)
 
-                                if len(products) > 0 and self.acceptableReactionStep( comboReactants, reagent, products, supplementalData ):
+                                if len(products) > 0 and self.acceptableReactionStep(
+                                    comboReactants, reagent, products, supplementalData
+                                ):
                                     # Found an acceptable reaction combination
-                                    reactionStep = [ comboReactants, reagent, products, supplementalData ];
-                                    yield reactionStep;
+                                    reactionStep = [
+                                        comboReactants,
+                                        reagent,
+                                        products,
+                                        supplementalData,
+                                    ]
+                                    yield reactionStep
+
 
 def main(argv):
     """Command-line accessible method to pregenerate several syntheses"""
-    usageStr =  "usage: %prog [options]\n"
+    usageStr = "usage: %prog [options]\n"
     parser = OptionParser(usage=usageStr)
-    parser.add_option("-r", "--reactionCategoryIDs", dest="reactionCategoryIDs", help="Comma separated list of reaction_category_id that each synthesis should be generated under.")
-    parser.add_option("-s", "--maxSteps", dest="maxSteps", help="Maximum number of steps each synthesis should have.");
-    parser.add_option("-t", "--maxTries", dest="maxTries", help="Maximum number of tries to generate each synthesis before selecting for the 'best' one.")
-    parser.add_option("-n", "--numberToGenerate", dest="numberToGenerate", help="Number of syntheses to generate.")
-    parser.add_option("-c", "--cacheControl", action="store_true", help="If set, after syntheses are generated, will check if the cache is too large and scale it down based on parameters in the Const file.")
+    parser.add_option(
+        "-r",
+        "--reactionCategoryIDs",
+        dest="reactionCategoryIDs",
+        help="Comma separated list of reaction_category_id that each synthesis should be generated under.",
+    )
+    parser.add_option(
+        "-s",
+        "--maxSteps",
+        dest="maxSteps",
+        help="Maximum number of steps each synthesis should have.",
+    )
+    parser.add_option(
+        "-t",
+        "--maxTries",
+        dest="maxTries",
+        help="Maximum number of tries to generate each synthesis before selecting for the 'best' one.",
+    )
+    parser.add_option(
+        "-n",
+        "--numberToGenerate",
+        dest="numberToGenerate",
+        help="Number of syntheses to generate.",
+    )
+    parser.add_option(
+        "-c",
+        "--cacheControl",
+        action="store_true",
+        help="If set, after syntheses are generated, will check if the cache is too large and scale it down based on parameters in the Const file.",
+    )
     (options, args) = parser.parse_args(argv[1:])
 
     try:
-        synthesisRequest = SynthesisRequestModel();
-        synthesisRequest.reactionCategoryIDs = options.reactionCategoryIDs.split(MOL_LIST_DELIM);
-        synthesisRequest.maxSteps = int(options.maxSteps);
-        synthesisRequest.maxTries = int(options.maxTries);
-        synthesisCount = int(options.numberToGenerate);
+        synthesisRequest = SynthesisRequestModel()
+        synthesisRequest.reactionCategoryIDs = options.reactionCategoryIDs.split(
+            MOL_LIST_DELIM
+        )
+        synthesisRequest.maxSteps = int(options.maxSteps)
+        synthesisRequest.maxTries = int(options.maxTries)
+        synthesisCount = int(options.numberToGenerate)
     except:
         parser.print_help()
         sys.exit(-1)
 
-    generator = SynthesisGenerator();
-    generator.preGenerateSyntheses( synthesisRequest, synthesisCount );
+    generator = SynthesisGenerator()
+    generator.preGenerateSyntheses(synthesisRequest, synthesisCount)
     if options.cacheControl:
-        generator.clearSynthesisCache( synthesisRequest, SYNTHESIS_CACHE_MAX+SYNTHESIS_CACHE_SCALEBACK, SYNTHESIS_CACHE_MAX );
-        
-if __name__=="__main__":
+        generator.clearSynthesisCache(
+            synthesisRequest,
+            SYNTHESIS_CACHE_MAX + SYNTHESIS_CACHE_SCALEBACK,
+            SYNTHESIS_CACHE_MAX,
+        )
+
+
+if __name__ == "__main__":
     main(sys.argv)
